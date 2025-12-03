@@ -47,6 +47,13 @@ class Citation(BaseModel):
     snippet: str = Field(default="", description="Relevant excerpt")
 
 
+class WebSearch(BaseModel):
+    """A web search performed during research."""
+
+    query: str = Field(description="The search query")
+    status: str = Field(default="completed")
+
+
 class ResearchResult(BaseModel):
     """Result from a deep research task."""
 
@@ -57,6 +64,23 @@ class ResearchResult(BaseModel):
         default=0.0, ge=0.0, le=1.0, description="Confidence score 0-1"
     )
     completed_at: datetime = Field(default_factory=datetime.utcnow)
+
+    # Metrics for evaluation
+    web_searches: list[WebSearch] = Field(
+        default_factory=list, description="Web searches performed"
+    )
+    reasoning_summaries: list[str] = Field(
+        default_factory=list, description="Reasoning steps from the model"
+    )
+    tool_call_count: int = Field(
+        default=0, description="Total tool calls made"
+    )
+    duration_seconds: float = Field(
+        default=0.0, description="Time taken for research"
+    )
+    usage: dict[str, int] = Field(
+        default_factory=dict, description="Token usage stats"
+    )
 
 
 class PlanningOutput(BaseModel):

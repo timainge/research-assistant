@@ -47,3 +47,8 @@ Next Actions
 2. Implement abstractions (LLM, research provider)
 3. Wire up orchestrator + CLI
 4. Manual end-to-end test with a real question
+
+
+### Human issues/reminders
+
+- [ ] synthesize fn combines all reports without token limit guards

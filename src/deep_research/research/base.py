@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ResearchCitation(BaseModel):
@@ -14,6 +14,19 @@ class ResearchCitation(BaseModel):
     snippet: str = ""
 
 
+class WebSearchCall(BaseModel):
+    """A web search call made during research."""
+
+    query: str = Field(description="The search query")
+    status: str = Field(default="completed", description="completed, failed, etc.")
+
+
+class ReasoningSummary(BaseModel):
+    """A reasoning summary from the research process."""
+
+    text: str = Field(description="The reasoning text")
+
+
 class ResearchResponse(BaseModel):
     """Standardized response from a research provider."""
 
@@ -21,6 +34,21 @@ class ResearchResponse(BaseModel):
     citations: list[ResearchCitation] = []
     model: str = ""
     usage: dict[str, int] = {}
+
+    # Intermediate outputs for evaluation
+    web_searches: list[WebSearchCall] = Field(
+        default_factory=list, description="Web searches performed during research"
+    )
+    reasoning_summaries: list[ReasoningSummary] = Field(
+        default_factory=list, description="Reasoning steps from the model"
+    )
+    tool_call_count: int = Field(
+        default=0, description="Total number of tool calls made"
+    )
+    duration_seconds: float = Field(
+        default=0.0, description="Time taken for the research call"
+    )
+
     raw_response: Any = None
 
 

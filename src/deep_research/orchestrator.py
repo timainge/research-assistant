@@ -176,7 +176,8 @@ class ResearchOrchestrator:
         research_response = await self.research.research(
             instructions_response.content,
         )
-        logger.info(f"✅ [{task.id}] Deep research completed in {time.time() - research_start:.1f}s")
+        research_duration = time.time() - research_start
+        logger.info(f"✅ [{task.id}] Deep research completed in {research_duration:.1f}s")
 
         result = ResearchResult(
             task_id=task.id,
@@ -186,9 +187,20 @@ class ResearchOrchestrator:
                 for c in research_response.citations
             ],
             confidence=0.8,  # TODO: implement confidence scoring
+            web_searches=[
+                {"query": s.query, "status": s.status}
+                for s in research_response.web_searches
+            ],
+            reasoning_summaries=[r.text for r in research_response.reasoning_summaries],
+            tool_call_count=research_response.tool_call_count,
+            duration_seconds=research_response.duration_seconds,
+            usage=research_response.usage,
         )
 
-        logger.info(f"✅ [{task.id}] Task completed in {time.time() - task_start:.1f}s ({len(result.content)} chars)")
+        logger.info(
+            f"✅ [{task.id}] Task completed in {time.time() - task_start:.1f}s "
+            f"({len(result.content)} chars, {result.tool_call_count} tool calls)"
+        )
         return result
 
     async def execute_tasks(

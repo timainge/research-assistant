@@ -1,9 +1,12 @@
 """CLI entry point for the deep research orchestrator."""
 
 import asyncio
+import logging
+import sys
 
 import typer
 from rich.console import Console
+from rich.logging import RichHandler
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -19,6 +22,19 @@ app = typer.Typer(
     invoke_without_command=True,
 )
 console = Console()
+
+
+def setup_logging(verbose: bool) -> None:
+    """Configure logging based on verbosity."""
+    level = logging.DEBUG if verbose else logging.WARNING
+    logging.basicConfig(
+        level=level,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(console=console, rich_tracebacks=True, show_path=False)],
+    )
+    # Set our package loggers
+    logging.getLogger("deep_research").setLevel(level)
 
 
 async def handle_clarification(clarification: ClarificationRequest) -> str:
@@ -39,7 +55,7 @@ async def handle_clarification(clarification: ClarificationRequest) -> str:
     return "\n\n".join(answers)
 
 
-async def run_research(question: str, interactive: bool = True) -> None:
+async def run_research(question: str, interactive: bool = True, verbose: bool = False) -> None:
     """Run the research workflow."""
     settings = get_settings()
 
@@ -49,7 +65,7 @@ async def run_research(question: str, interactive: bool = True) -> None:
         )
         raise typer.Exit(1)
 
-    orchestrator = ResearchOrchestrator(settings=settings)
+    orchestrator = ResearchOrchestrator(settings=settings, verbose=verbose)
 
     console.print(
         Panel(
@@ -58,11 +74,18 @@ async def run_research(question: str, interactive: bool = True) -> None:
         )
     )
 
-    with console.status("[bold green]Planning research approach..."):
+    if verbose:
+        # Don't use status spinner in verbose mode - let logs flow
         result = await orchestrator.run(
             question,
             on_clarification=handle_clarification if interactive else None,
         )
+    else:
+        with console.status("[bold green]Planning research approach..."):
+            result = await orchestrator.run(
+                question,
+                on_clarification=handle_clarification if interactive else None,
+            )
 
     if result["status"] == "needs_clarification":
         console.print("\n[bold yellow]Clarification needed:[/bold yellow]")
@@ -106,6 +129,12 @@ def default_research(
         "-n",
         help="Disable interactive clarification prompts",
     ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Enable verbose logging to see progress",
+    ),
 ) -> None:
     """
     Run a deep research task.
@@ -125,11 +154,13 @@ def default_research(
         console.print(ctx.get_help())
         raise typer.Exit(0)
 
+    setup_logging(verbose)
+
     full_question = question
     if context:
         full_question = f"{question}\n\nAdditional context: {context}"
 
-    asyncio.run(run_research(full_question, interactive=not non_interactive))
+    asyncio.run(run_research(full_question, interactive=not non_interactive, verbose=verbose))
 
 
 @app.command()

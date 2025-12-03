@@ -7,7 +7,13 @@ from typing import Any
 import httpx
 from openai import AsyncOpenAI
 
-from .base import ResearchCitation, ResearchProvider, ResearchResponse
+from .base import (
+    ReasoningSummary,
+    ResearchCitation,
+    ResearchProvider,
+    ResearchResponse,
+    WebSearchCall,
+)
 
 logger = logging.getLogger("deep_research.research.openai")
 
@@ -68,28 +74,57 @@ class OpenAIDeepResearchProvider(ResearchProvider):
             reasoning={"summary": "auto"},
             tools=[{"type": "web_search_preview"}],
         )
-        logger.debug(f"OpenAI Deep Research API call completed in {time.time() - start:.1f}s")
+        duration = time.time() - start
+        logger.debug(f"OpenAI Deep Research API call completed in {duration:.1f}s")
 
-        # Extract content from response
+        # Extract content, citations, and intermediate outputs from response
         content = ""
         citations: list[ResearchCitation] = []
+        web_searches: list[WebSearchCall] = []
+        reasoning_summaries: list[ReasoningSummary] = []
+        tool_call_count = 0
 
         for item in response.output:
-            if hasattr(item, "content"):
+            item_type = getattr(item, "type", None)
+
+            # Extract web search calls
+            if item_type == "web_search_call":
+                tool_call_count += 1
+                search_query = getattr(item, "query", "") or ""
+                status = getattr(item, "status", "completed")
+                web_searches.append(WebSearchCall(query=search_query, status=status))
+                logger.debug(f"  Web search: {search_query[:50]}...")
+
+            # Extract reasoning summaries
+            elif item_type == "reasoning":
+                summary_items = getattr(item, "summary", []) or []
+                for summary in summary_items:
+                    if hasattr(summary, "text"):
+                        reasoning_summaries.append(ReasoningSummary(text=summary.text))
+
+            # Extract message content and citations
+            elif item_type == "message":
+                if hasattr(item, "content") and item.content:
+                    for block in item.content:
+                        if hasattr(block, "text"):
+                            content += block.text
+                        # Extract citations from annotations if present
+                        if hasattr(block, "annotations"):
+                            for ann in block.annotations:
+                                if getattr(ann, "type", None) == "url_citation":
+                                    citations.append(
+                                        ResearchCitation(
+                                            url=getattr(ann, "url", ""),
+                                            title=getattr(ann, "title", ""),
+                                            snippet="",
+                                        )
+                                    )
+
+            # Fallback for other item types that might have content
+            elif hasattr(item, "content") and item.content:
                 for block in item.content:
                     if hasattr(block, "text"):
                         content += block.text
-                    # Extract citations from annotations if present
-                    if hasattr(block, "annotations"):
-                        for ann in block.annotations:
-                            if getattr(ann, "type", None) == "url_citation":
-                                citations.append(
-                                    ResearchCitation(
-                                        url=getattr(ann, "url", ""),
-                                        title=getattr(ann, "title", ""),
-                                        snippet="",
-                                    )
-                                )
 
         usage = {}
         if hasattr(response, "usage") and response.usage:
@@ -98,11 +133,20 @@ class OpenAIDeepResearchProvider(ResearchProvider):
                 "output_tokens": getattr(response.usage, "output_tokens", 0),
             }
 
+        logger.info(
+            f"Research complete: {len(web_searches)} searches, "
+            f"{len(citations)} citations, {len(content)} chars"
+        )
+
         return ResearchResponse(
             content=content,
             citations=citations,
             model=self.model,
             usage=usage,
+            web_searches=web_searches,
+            reasoning_summaries=reasoning_summaries,
+            tool_call_count=tool_call_count,
+            duration_seconds=duration,
             raw_response=response,
         )
 
