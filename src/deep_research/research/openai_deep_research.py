@@ -1,10 +1,24 @@
 """OpenAI Deep Research provider implementation."""
 
+import logging
+import time
 from typing import Any
 
+import httpx
 from openai import AsyncOpenAI
 
 from .base import ResearchCitation, ResearchProvider, ResearchResponse
+
+logger = logging.getLogger("deep_research.research.openai")
+
+# Deep Research can take 15-30+ minutes for complex queries
+# Set generous timeouts for connect, read, write, and pool
+DEEP_RESEARCH_TIMEOUT = httpx.Timeout(
+    connect=30.0,      # 30s to establish connection
+    read=1800.0,       # 30 minutes to wait for response
+    write=60.0,        # 60s to send request
+    pool=30.0,         # 30s to acquire connection from pool
+)
 
 
 class OpenAIDeepResearchProvider(ResearchProvider):
@@ -15,7 +29,7 @@ class OpenAIDeepResearchProvider(ResearchProvider):
         api_key: str,
         model: str = "o4-mini-deep-research-2025-06-26",
     ):
-        self.client = AsyncOpenAI(api_key=api_key, timeout=600.0)
+        self.client = AsyncOpenAI(api_key=api_key, timeout=DEEP_RESEARCH_TIMEOUT)
         self.model = model
 
     async def research(
@@ -26,6 +40,10 @@ class OpenAIDeepResearchProvider(ResearchProvider):
         **kwargs: Any,
     ) -> ResearchResponse:
         """Execute a deep research task using OpenAI's Deep Research API."""
+        logger.debug(f"Starting OpenAI Deep Research with model {self.model}")
+        logger.debug(f"Query: {query[:100]}...")
+        start = time.time()
+
         system_msg = system_instructions or (
             "You are a professional researcher. "
             "Produce a structured, citation-rich report with headings, "
@@ -43,12 +61,14 @@ class OpenAIDeepResearchProvider(ResearchProvider):
             },
         ]
 
+        logger.debug("Calling OpenAI Deep Research API...")
         response = await self.client.responses.create(
             model=self.model,
             input=input_messages,
             reasoning={"summary": "auto"},
             tools=[{"type": "web_search_preview"}],
         )
+        logger.debug(f"OpenAI Deep Research API call completed in {time.time() - start:.1f}s")
 
         # Extract content from response
         content = ""

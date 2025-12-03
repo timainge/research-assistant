@@ -1,7 +1,8 @@
 """Research orchestrator - coordinates planning, execution, and synthesis."""
 
 import asyncio
-import uuid
+import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,8 @@ from .models import (
 from .prompts import PromptLoader, get_prompt_loader
 from .research import OpenAIDeepResearchProvider, ResearchProvider
 
+logger = logging.getLogger("deep_research.orchestrator")
+
 
 class ResearchOrchestrator:
     """Orchestrates deep research workflows."""
@@ -28,8 +31,10 @@ class ResearchOrchestrator:
         llm_provider: LLMProvider | None = None,
         research_provider: ResearchProvider | None = None,
         prompt_loader: PromptLoader | None = None,
+        verbose: bool = False,
     ):
         self.settings = settings or get_settings()
+        self.verbose = verbose
         self.llm = llm_provider or self._create_llm_provider()
         self.research = research_provider or self._create_research_provider()
         self.prompts = prompt_loader or get_prompt_loader(
@@ -68,6 +73,9 @@ class ResearchOrchestrator:
 
         Returns either a clarification request or a list of research tasks.
         """
+        logger.info("📋 Planning research approach...")
+        start = time.time()
+
         prompt = self.prompts.render(
             "planner",
             question=question,
@@ -80,12 +88,14 @@ class ResearchOrchestrator:
             "Respond with valid JSON matching the schema."
         )
 
+        logger.debug("Calling LLM for planning...")
         response = await self.llm.complete(
             prompt,
             system=system,
             reasoning_effort=template.reasoning_effort,
             output_schema=template.output_schema,
         )
+        logger.debug(f"Planning LLM call completed in {time.time() - start:.1f}s")
 
         # Parse response into PlanningOutput
         import json
@@ -111,12 +121,21 @@ class ResearchOrchestrator:
                 context=data.get("clarification_context", ""),
             )
 
-        return PlanningOutput(
+        plan = PlanningOutput(
             needs_clarification=data.get("needs_clarification", False),
             clarification=clarification,
             tasks=tasks,
             reasoning=data.get("reasoning", ""),
         )
+
+        if plan.needs_clarification:
+            logger.info("❓ Clarification needed from user")
+        else:
+            logger.info(f"✅ Plan created with {len(tasks)} task(s)")
+            for t in tasks:
+                logger.debug(f"  - [{t.id}] {t.query[:60]}...")
+
+        return plan
 
     async def execute_task(
         self,
@@ -125,6 +144,9 @@ class ResearchOrchestrator:
         completed_results: dict[str, ResearchResult] | None = None,
     ) -> ResearchResult:
         """Execute a single research task."""
+        logger.info(f"🔬 Starting task [{task.id}]: {task.query[:50]}...")
+        task_start = time.time()
+
         # Build context from completed tasks if any
         completed_context = ""
         if completed_results:
@@ -134,6 +156,7 @@ class ResearchOrchestrator:
             completed_context = "\n\n".join(parts)
 
         # Generate detailed research instructions
+        logger.debug(f"[{task.id}] Generating research instructions...")
         instructions_prompt = self.prompts.render(
             "research_instructions",
             original_question=original_question,
@@ -145,13 +168,17 @@ class ResearchOrchestrator:
             instructions_prompt,
             reasoning_effort="low",
         )
+        logger.debug(f"[{task.id}] Instructions generated")
 
         # Execute the research
+        logger.info(f"🌐 [{task.id}] Executing deep research (this may take several minutes)...")
+        research_start = time.time()
         research_response = await self.research.research(
             instructions_response.content,
         )
+        logger.info(f"✅ [{task.id}] Deep research completed in {time.time() - research_start:.1f}s")
 
-        return ResearchResult(
+        result = ResearchResult(
             task_id=task.id,
             content=research_response.content,
             citations=[
@@ -161,16 +188,22 @@ class ResearchOrchestrator:
             confidence=0.8,  # TODO: implement confidence scoring
         )
 
+        logger.info(f"✅ [{task.id}] Task completed in {time.time() - task_start:.1f}s ({len(result.content)} chars)")
+        return result
+
     async def execute_tasks(
         self,
         tasks: list[ResearchTask],
         original_question: str,
     ) -> dict[str, ResearchResult]:
         """Execute multiple research tasks, respecting dependencies."""
+        logger.info(f"🚀 Executing {len(tasks)} research task(s)...")
         results: dict[str, ResearchResult] = {}
         pending = {t.id: t for t in tasks}
+        batch_num = 0
 
         while pending:
+            batch_num += 1
             # Find tasks ready to run (all dependencies satisfied)
             ready = [
                 t
@@ -187,6 +220,8 @@ class ResearchOrchestrator:
             # Sort by priority and take up to max_parallel
             ready.sort(key=lambda t: -t.priority)
             batch = ready[: self.settings.max_parallel_tasks]
+
+            logger.info(f"📦 Batch {batch_num}: Running {len(batch)} task(s) in parallel: {[t.id for t in batch]}")
 
             # Mark as running
             for t in batch:
@@ -205,6 +240,7 @@ class ResearchOrchestrator:
             for task, result in zip(batch, batch_results):
                 if isinstance(result, Exception):
                     task.status = TaskStatus.FAILED
+                    logger.error(f"❌ [{task.id}] Failed: {result}")
                     # Create a failed result
                     results[task.id] = ResearchResult(
                         task_id=task.id,
@@ -217,6 +253,8 @@ class ResearchOrchestrator:
 
                 del pending[task.id]
 
+            logger.info(f"📦 Batch {batch_num} complete. {len(pending)} task(s) remaining.")
+
         return results
 
     async def synthesize(
@@ -225,15 +263,17 @@ class ResearchOrchestrator:
         results: dict[str, ResearchResult],
     ) -> str:
         """Synthesize multiple research results into a final answer."""
+        logger.info(f"📝 Synthesizing {len(results)} research result(s)...")
+        start = time.time()
+
         results_list = [
             {
                 "task_id": r.task_id,
                 "content": r.content,
-                "citations": [c.model_dump() for c in r.citations]
-                if hasattr(r.citations[0], "model_dump")
-                else r.citations
-                if r.citations
-                else [],
+                "citations": [
+                    c.model_dump() if hasattr(c, "model_dump") else c
+                    for c in r.citations
+                ],
             }
             for r in results.values()
         ]
@@ -249,6 +289,7 @@ class ResearchOrchestrator:
             reasoning_effort="high",
         )
 
+        logger.info(f"✅ Synthesis completed in {time.time() - start:.1f}s")
         return response.content
 
     async def run(
@@ -269,6 +310,8 @@ class ResearchOrchestrator:
         Returns:
             Dict with 'answer', 'results', 'tasks', and metadata.
         """
+        logger.info("🔍 Starting research workflow...")
+        workflow_start = time.time()
         state = OrchestratorState(original_question=question)
 
         # Step 1: Plan
@@ -306,6 +349,7 @@ class ResearchOrchestrator:
             final_answer = await self.synthesize(question, results)
 
         state.status = "complete"
+        logger.info(f"🎉 Research workflow completed in {time.time() - workflow_start:.1f}s")
 
         return {
             "status": "complete",
