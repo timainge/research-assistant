@@ -15,6 +15,8 @@ from .orchestrator import ResearchOrchestrator
 app = typer.Typer(
     name="deep-research",
     help="Deep Research Orchestrator - AI-powered research automation",
+    no_args_is_help=True,
+    invoke_without_command=True,
 )
 console = Console()
 
@@ -85,10 +87,11 @@ async def run_research(question: str, interactive: bool = True) -> None:
     console.print(Markdown(result["answer"]))
 
 
-@app.command()
-def research(
+@app.callback(invoke_without_command=True)
+def default_research(
+    ctx: typer.Context,
     question: str = typer.Argument(
-        ...,
+        None,
         help="The research question to investigate",
     ),
     context: str = typer.Option(
@@ -113,6 +116,15 @@ def research(
     3. Execute research in parallel where possible
     4. Synthesize findings into a comprehensive answer
     """
+    # If a subcommand was invoked, skip
+    if ctx.invoked_subcommand is not None:
+        return
+
+    # If no question provided, show help
+    if question is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(0)
+
     full_question = question
     if context:
         full_question = f"{question}\n\nAdditional context: {context}"

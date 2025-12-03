@@ -104,10 +104,11 @@ class ResearchOrchestrator:
             )
 
         clarification = None
-        if data.get("clarification"):
+        clarification_questions = data.get("clarification_questions", [])
+        if clarification_questions:
             clarification = ClarificationRequest(
-                questions=data["clarification"]["questions"],
-                context=data["clarification"].get("context", ""),
+                questions=clarification_questions,
+                context=data.get("clarification_context", ""),
             )
 
         return PlanningOutput(
@@ -313,4 +314,3 @@ class ResearchOrchestrator:
             "results": {k: v.model_dump() for k, v in results.items()},
             "reasoning": plan.reasoning,
         }
-

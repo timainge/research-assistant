@@ -35,11 +35,11 @@ You are preparing detailed research instructions for a deep research agent. Your
 
 {{task_query}}
 
-{{#if completed_tasks}}
+{{#completed_tasks}}
 ## Context from Completed Research
 
 {{completed_tasks}}
-{{/if}}
+{{/completed_tasks}}
 
 ## Your Output
 

@@ -28,20 +28,20 @@ You are synthesizing the results of a multi-part research process into a coheren
 
 ## Research Results
 
-{{#each results}}
-### Task: {{this.task_id}}
+{{#results}}
+### Task: {{task_id}}
 
-{{this.content}}
+{{content}}
 
-{{#if this.citations}}
+{{#citations}}
 **Sources:**
-{{#each this.citations}}
-- [{{this.title}}]({{this.url}})
-{{/each}}
-{{/if}}
+{{#citations}}
+- [{{title}}]({{url}})
+{{/citations}}
+{{/citations}}
 
 ---
-{{/each}}
+{{/results}}
 
 ## Your Synthesis
 

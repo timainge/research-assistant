@@ -24,6 +24,26 @@ class OpenAIProvider(LLMProvider):
         self.default_reasoning_effort = default_reasoning_effort
         self.default_verbosity = default_verbosity
 
+    def _add_additional_properties_false(self, schema: dict) -> dict:
+        """Recursively add additionalProperties: false to all objects in schema."""
+        if not isinstance(schema, dict):
+            return schema
+
+        result = schema.copy()
+
+        if result.get("type") == "object":
+            result["additionalProperties"] = False
+            if "properties" in result:
+                result["properties"] = {
+                    k: self._add_additional_properties_false(v)
+                    for k, v in result["properties"].items()
+                }
+
+        if "items" in result:
+            result["items"] = self._add_additional_properties_false(result["items"])
+
+        return result
+
     async def complete(
         self,
         prompt: str,
@@ -66,9 +86,15 @@ class OpenAIProvider(LLMProvider):
 
         # Add structured output if schema provided
         if output_schema:
+            # GPT-5.1 expects: type, name, strict, schema at the format level
+            schema = output_schema.get("schema", output_schema)
+            # Ensure additionalProperties: false for strict mode
+            schema = self._add_additional_properties_false(schema)
             request_params["text"]["format"] = {
                 "type": "json_schema",
-                "json_schema": output_schema,
+                "name": output_schema.get("name", "response"),
+                "strict": output_schema.get("strict", True),
+                "schema": schema,
             }
 
         response = await self.client.responses.create(**request_params)
@@ -76,7 +102,7 @@ class OpenAIProvider(LLMProvider):
         # Extract text from response
         content = ""
         for item in response.output:
-            if hasattr(item, "content"):
+            if hasattr(item, "content") and item.content:
                 for block in item.content:
                     if hasattr(block, "text"):
                         content += block.text

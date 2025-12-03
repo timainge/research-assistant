@@ -13,21 +13,14 @@ output_schema:
       needs_clarification:
         type: boolean
         description: Whether user clarification is needed before proceeding
-      clarification:
-        type: object
-        nullable: true
-        properties:
-          questions:
-            type: array
-            items:
-              type: string
-            description: Questions to ask the user
-          context:
-            type: string
-            description: Why clarification is needed
-        required:
-          - questions
-          - context
+      clarification_questions:
+        type: array
+        items:
+          type: string
+        description: Questions to ask the user (empty if no clarification needed)
+      clarification_context:
+        type: string
+        description: Why clarification is needed (empty if no clarification needed)
       tasks:
         type: array
         items:
@@ -56,6 +49,8 @@ output_schema:
         description: Explanation of the planning decision
     required:
       - needs_clarification
+      - clarification_questions
+      - clarification_context
       - tasks
       - reasoning
 ---
@@ -95,11 +90,11 @@ When decomposing into tasks:
 
 {{question}}
 
-{{#if context}}
+{{#context}}
 ## Additional Context
 
 {{context}}
-{{/if}}
+{{/context}}
 
 ## Your Response
 
