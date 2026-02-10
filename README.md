@@ -45,8 +45,11 @@ deep-research "Your question" --context "Focus on enterprise use cases"
 # Non-interactive mode (no clarification prompts)
 deep-research "Your question" --non-interactive
 
-# Combine flags (verbose + non-interactive)
-deep-research -v -n "Your question"
+# Save full results to JSON file (includes tasks, metrics, citations)
+deep-research "Your question" --save results.json
+
+# Combine flags (verbose + non-interactive + save)
+deep-research -v -n -o output.json "Your question"
 
 # List available prompt templates
 deep-research list-prompts

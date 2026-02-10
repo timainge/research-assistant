@@ -23,9 +23,19 @@ MVP Sprint: Deep Research Orchestrator
 - [x] Fix JSON schema for GPT-5.1 structured outputs (additionalProperties: false)
 - [x] Fix httpx timeouts for long-running Deep Research API calls (30min read timeout)
 - [x] Capture intermediate outputs (web searches, reasoning, tool call counts) for evaluation
+- [x] Add `--save` / `-o` option to save full JSON results to file
+- [x] Add rolling synthesis for large results (context overflow protection)
+- [x] Fix verbose logging to suppress httpx/httpcore debug spam
+- [x] Handle OpenAI 10MB per-string limit by chunking oversized content
+- [x] Add workflow runtime budget guard (`max_runtime_seconds`) across execution and synthesis
+- [x] Add clarification-loop safety guard using `max_iterations`
+- [x] Add compression-pass ceiling and truncation fallback (prevent unbounded recursive compression)
+- [x] Exclude failed tasks from synthesis and surface partial-failure notice in final output
+- [x] Add CLI handling for runtime/guard errors with clear user-facing messages
 
 ### Active
-- [ ] Synthesize function: add token limit guards to avoid context overflow
+- [ ] Test synthesis with very large research outputs
+- [ ] Add deterministic tests for guard behavior (runtime, clarification cap, compression cap)
 
 ### Deferred (Phase 2)
 - [ ] Multi-task roll-up with hierarchical summarization
@@ -39,7 +49,8 @@ MVP Sprint: Deep Research Orchestrator
 - [ ] Streaming output during long research tasks
 - [ ] CI (formatting, linting, tests)
 - [ ] Cost tracking and budget limits
-
+- [ ] graceful handling of connection errors/offline-mode and option to use local-llm and local-kb
+- [ ] refactor context management and other non-orchestration logic into a utils module
 ---
 
 Backlog (general)
@@ -52,13 +63,14 @@ Backlog (general)
 
 Known Issues
 ------------
-- [ ] Synthesize fn combines all reports without token limit guards (could overflow context)
 - [ ] No cost estimation or budget enforcement yet
+- [ ] Token estimation uses rough heuristic (4 chars/token) - could use tiktoken for precision
+- [ ] Deep research calls cannot be interrupted mid-request once an external API call has started
 
 ---
 
 Next Actions
 ------------
-1. Add token limit guards to synthesis
-2. Test end-to-end with various question types
-3. Consider adding streaming for better UX during long waits
+1. Add unit tests with mocked providers for runtime and guard behavior
+2. Test end-to-end with various question types, including induced task failures
+3. Add final output section for structured errors/omissions in saved JSON

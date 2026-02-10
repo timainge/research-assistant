@@ -106,7 +106,16 @@ Tasks are executed in batches:
 
 ### 3.3 Synthesis Phase
 
-For single-task results, return directly. For multiple tasks, GPT-5.1 synthesizes all results into a unified answer with preserved citations.
+For single-task results, return directly. For multiple tasks:
+
+1. **Batch synthesis** (if total content < 250k tokens): Synthesize all at once
+2. **Rolling synthesis** (if content exceeds limits):
+   - Start with first result as draft
+   - Merge each subsequent result into the draft
+   - Compress draft if needed before merging
+   - Maintains citations and resolves contradictions incrementally
+
+This prevents context overflow errors when Deep Research returns large reports.
 
 ---
 
@@ -175,6 +184,15 @@ DEEP_RESEARCH_TIMEOUT = httpx.Timeout(
 )
 ```
 
+### 6.1 Runtime and Reliability Guards
+
+To prevent runaway loops and unbounded runtime/cost, the orchestrator now enforces:
+
+- **Workflow runtime budget**: A hard deadline based on `max_runtime_seconds` is checked before scheduling, task preparation, instruction generation, deep-research calls, and synthesis operations.
+- **Clarification loop cap**: Interactive clarification can re-enter planning, but is now capped by `max_iterations`.
+- **Compression pass cap**: Oversized synthesis inputs use iterative compression with a bounded number of passes (`max_iterations * 2`) and a truncation fallback if still oversized.
+- **Partial-failure handling**: Failed tasks are excluded from synthesis and surfaced in the final answer as a partial-failure notice.
+
 ---
 
 ## 7. Research Metrics
@@ -208,7 +226,8 @@ Not yet implemented:
 
 ## 9. Known Limitations
 
-1. **Context Overflow**: Synthesis combines all results without token guards
-2. **No Re-planning**: Single planning pass only (no judge loop)
-3. **OpenAI Only**: No alternative providers implemented yet
-4. **No Caching**: Repeated queries re-run full research
+1. **No Re-planning**: Single planning pass only (no judge loop)
+2. **OpenAI Only**: No alternative providers implemented yet
+3. **No Caching**: Repeated queries re-run full research
+4. **Token Estimation**: Uses rough 4 chars/token heuristic (could use tiktoken for precision)
+5. **Non-interruptible Provider Calls**: Once a deep research request is in-flight, it cannot be preempted mid-call

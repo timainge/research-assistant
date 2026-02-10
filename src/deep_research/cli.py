@@ -1,8 +1,10 @@
 """CLI entry point for the deep research orchestrator."""
 
 import asyncio
+import json
 import logging
-import sys
+from datetime import datetime
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -26,15 +28,22 @@ console = Console()
 
 def setup_logging(verbose: bool) -> None:
     """Configure logging based on verbosity."""
-    level = logging.DEBUG if verbose else logging.WARNING
+    # Set root logger to WARNING to suppress noise from libraries
     logging.basicConfig(
-        level=level,
+        level=logging.WARNING,
         format="%(message)s",
         datefmt="[%X]",
         handlers=[RichHandler(console=console, rich_tracebacks=True, show_path=False)],
     )
-    # Set our package loggers
+    
+    # Set our package loggers to appropriate level
+    level = logging.DEBUG if verbose else logging.WARNING
     logging.getLogger("deep_research").setLevel(level)
+    
+    # Keep noisy libraries quiet even in verbose mode
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
 
 
 async def handle_clarification(clarification: ClarificationRequest) -> str:
@@ -55,7 +64,12 @@ async def handle_clarification(clarification: ClarificationRequest) -> str:
     return "\n\n".join(answers)
 
 
-async def run_research(question: str, interactive: bool = True, verbose: bool = False) -> None:
+async def run_research(
+    question: str,
+    interactive: bool = True,
+    verbose: bool = False,
+    save_path: Path | None = None,
+) -> None:
     """Run the research workflow."""
     settings = get_settings()
 
@@ -74,18 +88,25 @@ async def run_research(question: str, interactive: bool = True, verbose: bool = 
         )
     )
 
-    if verbose:
-        # Don't use status spinner in verbose mode - let logs flow
-        result = await orchestrator.run(
-            question,
-            on_clarification=handle_clarification if interactive else None,
-        )
-    else:
-        with console.status("[bold green]Planning research approach..."):
+    try:
+        if verbose:
+            # Don't use status spinner in verbose mode - let logs flow
             result = await orchestrator.run(
                 question,
                 on_clarification=handle_clarification if interactive else None,
             )
+        else:
+            with console.status("[bold green]Planning research approach..."):
+                result = await orchestrator.run(
+                    question,
+                    on_clarification=handle_clarification if interactive else None,
+                )
+    except TimeoutError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(2) from exc
+    except RuntimeError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(2) from exc
 
     if result["status"] == "needs_clarification":
         console.print("\n[bold yellow]Clarification needed:[/bold yellow]")
@@ -96,6 +117,18 @@ async def run_research(question: str, interactive: bool = True, verbose: bool = 
             "or use --context to provide additional context.[/dim]"
         )
         return
+
+    # Save results to file if requested
+    if save_path:
+        # Add metadata to saved output
+        output = {
+            "question": question,
+            "timestamp": datetime.utcnow().isoformat(),
+            **result,
+        }
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_text(json.dumps(output, indent=2, default=str))
+        console.print(f"\n[dim]Results saved to: {save_path}[/dim]")
 
     # Display results
     console.print("\n")
@@ -108,6 +141,13 @@ async def run_research(question: str, interactive: bool = True, verbose: bool = 
 
     console.print("\n[bold]Answer:[/bold]\n")
     console.print(Markdown(result["answer"]))
+
+    failed_tasks = result.get("failed_tasks", [])
+    if failed_tasks:
+        console.print(
+            f"\n[bold yellow]Warning:[/bold yellow] "
+            f"{len(failed_tasks)} task(s) failed: {', '.join(failed_tasks)}"
+        )
 
 
 @app.callback(invoke_without_command=True)
@@ -135,6 +175,12 @@ def default_research(
         "-v",
         help="Enable verbose logging to see progress",
     ),
+    save: Path = typer.Option(
+        None,
+        "--save",
+        "-o",
+        help="Save full results (JSON) to file including tasks, metrics, and citations",
+    ),
 ) -> None:
     """
     Run a deep research task.
@@ -160,7 +206,14 @@ def default_research(
     if context:
         full_question = f"{question}\n\nAdditional context: {context}"
 
-    asyncio.run(run_research(full_question, interactive=not non_interactive, verbose=verbose))
+    asyncio.run(
+        run_research(
+            full_question,
+            interactive=not non_interactive,
+            verbose=verbose,
+            save_path=save,
+        )
+    )
 
 
 @app.command()
